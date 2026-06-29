@@ -24,11 +24,6 @@ back_to_top: true
 back_to_top_text: "Back to top"
 enable_copy_code_button: true
 
-# Auxiliary Links (Top right navigation block)
+# Auxiliary Links
 aux_links:
-  "GitHub Repository": "https://github.com"
-
-# External Links (Appears inside the side navigation panel)
-nav_external_links:
-  - title: "Main Project Site"
-    url: "https://example.com"
+  "GitHub Repository": "https://github.com/k329272/ESPNowMesh"
