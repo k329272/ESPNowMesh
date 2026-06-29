@@ -35,10 +35,15 @@ void ESPNowMesh::begin(const char* deviceName) {
     Serial.println("[MESH] Failed to initialize ESP-NOW");
     return;
   }
-  
+
   // Register callbacks
+  #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  esp_now_register_recv_cb((esp_now_recv_cb_t)espNowOnReceive);
+  esp_now_register_send_cb((esp_now_send_cb_t)espNowOnSent);
+  #else
   esp_now_register_recv_cb(espNowOnReceive);
   esp_now_register_send_cb(espNowOnSent);
+  #endif
   
   Serial.print("[MESH] Initialized with MAC: ");
   char macStr[18];
@@ -108,9 +113,15 @@ void ESPNowMesh::broadcastDiscoveryProbe() {
   esp_now_send(broadcastMAC, (uint8_t*)&msg, sizeof(MeshMessage));
 }
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+void ESPNowMesh::espNowOnReceive(const esp_now_recv_info_t* recv_info, const uint8_t* incomingData, int len) {
+  if (instance == nullptr) return;
+  const uint8_t* mac = recv_info->src_addr; // Extract the source MAC address
+#else
 void ESPNowMesh::espNowOnReceive(const uint8_t* mac, const uint8_t* incomingData, int len) {
   if (instance == nullptr) return;
-  
+#endif
+
   if (len < sizeof(MeshMessage)) return;
   
   MeshMessage* msg = (MeshMessage*)incomingData;

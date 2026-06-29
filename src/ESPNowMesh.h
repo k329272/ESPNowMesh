@@ -113,9 +113,13 @@ class ESPNowMesh {
     static void wifiEnableTimeout(void* param);
 
     // ESP-NOW callbacks
+    #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    static void espNowOnReceive(const esp_now_recv_info_t* recv_info, const uint8_t* incomingData, int len);
+    static void espNowOnSent(const uint8_t* mac, esp_now_send_status_t status);
+    #else
     static void espNowOnReceive(const uint8_t* mac, const uint8_t* incomingData, int len);
     static void espNowOnSent(const uint8_t* mac, esp_now_send_status_t status);
-
+    #endif
     // Device management
     void addOrUpdateDevice(const uint8_t* macAddress, int16_t rssi);
     void removeStaleDevices();
