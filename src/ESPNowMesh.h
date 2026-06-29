@@ -9,13 +9,6 @@
 #include <queue>
 #include <algorithm>
 
-// Configuration constants
-#define MESH_MAX_DEVICES 20
-#define MESH_DISCOVERY_INTERVAL 5000  // 5 seconds
-#define MESH_RSSI_THRESHOLD -85       // Minimum signal strength to consider
-#define MESH_MAX_HOPS 10
-#define WIFI_ENABLE_DURATION 10000    // 10 seconds
-
 // Message types for ESP-NOW communication
 enum MeshMessageType {
   MSG_DISCOVERY_PROBE = 1,
@@ -60,10 +53,15 @@ class ESPNowMesh {
   public:
     ESPNowMesh();
     ~ESPNowMesh();
+  // Update the 'begin' and 'enableWiFiForPath' signatures in the public section:
+  void begin(const char* deviceName,
+            const uint8_t meshMaxDevices = 20,
+            const uint32_t meshDiscoveryInterval = 5000,  // Changed to uint32_t
+            const int16_t meshRSSIThreshold = -85,       // Changed to int16_t
+            const uint8_t meshMaxHops = 10,
+            const uint32_t WiFiEnableDuration = 10000);  // Changed to uint32_t
 
-    // Initialize the mesh network
-    void begin(const char* deviceName);
-
+  void enableWiFiForPath(const MeshRoute& route, uint32_t durationMs = 10000); // Replaced WIFI_ENABLE_DURATION macro with default 10000
     // Start periodic discovery
     void startDiscovery();
     void stopDiscovery();
@@ -77,7 +75,7 @@ class ESPNowMesh {
     std::vector<MeshRoute> findAlternativePaths(const uint8_t* destinationMAC, uint8_t numPaths = 3);
 
     // WiFi management
-    void enableWiFiForPath(const MeshRoute& route, uint32_t durationMs = WIFI_ENABLE_DURATION);
+    void enableWiFiForPath(const MeshRoute& route);
     void disableWiFiForDevice();
 
     // Send data through mesh
@@ -146,6 +144,11 @@ class ESPNowMesh {
 
     // Static instance for callbacks
     static ESPNowMesh* instance;
+    String _deviceName;
+    uint8_t _maxDevices;
+    uint32_t _discoveryInterval;
+    int16_t _rssiThreshold;
+    uint8_t _maxHops;
+    uint32_t _wifiEnableDuration;
 };
-
 #endif

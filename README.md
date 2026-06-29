@@ -195,6 +195,32 @@ Serial.printf("My MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
   myMAC[0], myMAC[1], myMAC[2], myMAC[3], myMAC[4], myMAC[5]);
 ```
 
+#### `void printNetworkGraphML()`
+Prints the network in a GraphML XML format to the serial.
+
+**Example:**
+```cpp
+#include "ESPNowMesh.h"
+
+ESPNowMesh mesh;
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Initialize mesh network
+  mesh.begin("MyDevice");
+  
+  // Start periodic discovery
+  mesh.startDiscovery();
+}
+
+void loop() {
+  delay(1000);
+  
+  // Print network status
+  mesh.printNetworkGraphML();
+}
+```
 ---
 
 ### Pathfinding

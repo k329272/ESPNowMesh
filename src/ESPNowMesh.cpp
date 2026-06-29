@@ -21,7 +21,21 @@ ESPNowMesh::~ESPNowMesh() {
   esp_now_deinit();
 }
 
-void ESPNowMesh::begin(const char* deviceName) {
+void ESPNowMesh::begin(const char* deviceName, 
+                      const uint8_t meshMaxDevices,
+                      const uint32_t meshDiscoveryInterval,
+                      const int16_t meshRSSIThreshold,
+                      const uint8_t meshMaxHops,
+                      const uint32_t WiFiEnableDuration) {
+  
+  // Store the configuration variables
+  _deviceName = String(deviceName);
+  _maxDevices = meshMaxDevices;
+  _discoveryInterval = meshDiscoveryInterval;
+  _rssiThreshold = meshRSSIThreshold;
+  _maxHops = meshMaxHops;
+  _wifiEnableDuration = WiFiEnableDuration;
+
   // Initialize WiFi in STA mode
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
@@ -57,10 +71,9 @@ void ESPNowMesh::startDiscovery() {
   discoveryRunning = true;
   Serial.println("[MESH] Starting discovery");
   
-  // Create timer for periodic discovery
   discoveryTimer = xTimerCreate(
     "MeshDiscovery",
-    pdMS_TO_TICKS(MESH_DISCOVERY_INTERVAL),
+    pdMS_TO_TICKS(_discoveryInterval),
     pdTRUE,
     (void*)this,
     [](TimerHandle_t xTimer) {
@@ -155,6 +168,11 @@ void ESPNowMesh::handleDiscoveryProbe(const uint8_t* senderMAC, const MeshMessag
   // Don't respond to our own probes
   if (compareMac(senderMAC, myMAC)) return;
   
+  // Enforce the maximum hop limit
+  if (msg->hopCount >= _maxHops) {
+    return; 
+  }
+  
   // Send discovery response
   MeshMessage response;
   response.messageType = MSG_DISCOVERY_RESPONSE;
@@ -175,8 +193,13 @@ void ESPNowMesh::handleDiscoveryProbe(const uint8_t* senderMAC, const MeshMessag
 }
 
 void ESPNowMesh::handleDiscoveryResponse(const uint8_t* senderMAC, const MeshMessage* msg) {
-  // Get RSSI from WiFi scan (simplified - would need actual implementation)
   int16_t rssi = -60;  // Placeholder
+  
+  // Enforce RSSI Threshold
+  if (rssi < _rssiThreshold) {
+    Serial.println("[MESH] Device ignored due to low signal strength");
+    return;
+  }
   
   // Add or update device
   addOrUpdateDevice(senderMAC, rssi);
@@ -298,7 +321,7 @@ int16_t ESPNowMesh::calculatePathQuality(const MeshRoute& route) {
   return quality;
 }
 
-void ESPNowMesh::enableWiFiForPath(const MeshRoute& route, uint32_t durationMs) {
+void ESPNowMesh::enableWiFiForPath(const MeshRoute& route) {
   enableWiFi();
   
   // Create timer to disable WiFi after duration
@@ -309,7 +332,7 @@ void ESPNowMesh::enableWiFiForPath(const MeshRoute& route, uint32_t durationMs) 
   
   wifiDisableTimer = xTimerCreate(
     "WiFiDisable",
-    pdMS_TO_TICKS(durationMs),
+    pdMS_TO_TICKS(_wifiEnableDuration),  // Replaced durationMs with _wifiEnableDuration
     pdFALSE,
     (void*)this,
     [](TimerHandle_t xTimer) {
@@ -320,7 +343,52 @@ void ESPNowMesh::enableWiFiForPath(const MeshRoute& route, uint32_t durationMs) 
   
   xTimerStart(wifiDisableTimer, 0);
   
-  Serial.printf("[MESH] WiFi enabled for %d ms\n", durationMs);
+  Serial.printf("[MESH] WiFi enabled for %d ms\n", _wifiEnableDuration);
+}
+
+void ESPNowMesh::printNetworkGraphML() {
+  Serial.println("--- BEGIN GRAPHML ---");
+  
+  // Print standard GraphML header and schema definitions
+  Serial.println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+  Serial.println("<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\"");
+  Serial.println("         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"");
+  Serial.println("         xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd\">");
+  
+  // Define attributes for node labels and edge weights (RSSI)
+  Serial.println("  <key id=\"d0\" for=\"node\" attr.name=\"label\" attr.type=\"string\"/>");
+  Serial.println("  <key id=\"d1\" for=\"edge\" attr.name=\"rssi\" attr.type=\"int\"/>");
+  
+  Serial.println("  <graph id=\"G\" edgedefault=\"directed\">");
+  
+  // 1. Print our local device node
+  char myMacStr[18];
+  macToString(myMAC, myMacStr);
+  Serial.printf("    <node id=\"%s\">\n", myMacStr);
+  Serial.printf("      <data key=\"d0\">Self (%s)</data>\n", myMacStr);
+  Serial.println("    </node>");
+  
+  // 2. Print neighbor nodes and edges
+  int edgeId = 0;
+  for (auto const& [macStr, device] : deviceMap) {
+    if (!device.isActive) continue;
+    
+    // Print peer node
+    Serial.printf("    <node id=\"%s\">\n", macStr.c_str());
+    Serial.printf("      <data key=\"d0\">%s</data>\n", macStr.c_str());
+    Serial.println("    </node>");
+    
+    // Print directed edge from self to peer with RSSI value
+    Serial.printf("    <edge id=\"e%d\" source=\"%s\" target=\"%s\">\n", edgeId++, myMacStr, macStr.c_str());
+    Serial.printf("      <data key=\"d1\">%d</data>\n", device.rssi);
+    Serial.println("    </edge>");
+  }
+  
+  // Close structural elements
+  Serial.println("  </graph>");
+  Serial.println("</graphml>");
+  
+  Serial.println("--- END GRAPHML ---");
 }
 
 void ESPNowMesh::enableWiFi() {
@@ -366,6 +434,12 @@ void ESPNowMesh::getMyMAC(uint8_t* macBuffer) {
 void ESPNowMesh::addOrUpdateDevice(const uint8_t* macAddress, int16_t rssi) {
   char macStr[18];
   macToString(macAddress, macStr);
+  
+  // Enforce Max Devices limit for new devices
+  if (deviceMap.find(macStr) == deviceMap.end() && deviceMap.size() >= _maxDevices) {
+    Serial.println("[MESH] Maximum device limit reached. Cannot add new peer.");
+    return;
+  }
   
   MeshDevice device;
   device.rssi = rssi;
@@ -447,51 +521,6 @@ void ESPNowMesh::printNetworkTopology() {
     );
   }
   Serial.println();
-}
-
-void ESPNowMesh::printNetworkGraphML() {
-  Serial.println("--- BEGIN GRAPHML ---");
-  
-  // Print standard GraphML header and schema definitions
-  Serial.println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-  Serial.println("<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\"");
-  Serial.println("         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"");
-  Serial.println("         xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd\">");
-  
-  // Define attributes for node labels and edge weights (RSSI)
-  Serial.println("  <key id=\"d0\" for=\"node\" attr.name=\"label\" attr.type=\"string\"/>");
-  Serial.println("  <key id=\"d1\" for=\"edge\" attr.name=\"rssi\" attr.type=\"int\"/>");
-  
-  Serial.println("  <graph id=\"G\" edgedefault=\"directed\">");
-  
-  // 1. Print our local device node
-  char myMacStr[18];
-  macToString(myMAC, myMacStr);
-  Serial.printf("    <node id=\"%s\">\n", myMacStr);
-  Serial.printf("      <data key=\"d0\">Self (%s)</data>\n", myMacStr);
-  Serial.println("    </node>");
-  
-  // 2. Print neighbor nodes and edges
-  int edgeId = 0;
-  for (auto const& [macStr, device] : deviceMap) {
-    if (!device.isActive) continue;
-    
-    // Print peer node
-    Serial.printf("    <node id=\"%s\">\n", macStr.c_str());
-    Serial.printf("      <data key=\"d0\">%s</data>\n", macStr.c_str());
-    Serial.println("    </node>");
-    
-    // Print directed edge from self to peer with RSSI value
-    Serial.printf("    <edge id=\"e%d\" source=\"%s\" target=\"%s\">\n", edgeId++, myMacStr, macStr.c_str());
-    Serial.printf("      <data key=\"d1\">%d</data>\n", device.rssi);
-    Serial.println("    </edge>");
-  }
-  
-  // Close structural elements
-  Serial.println("  </graph>");
-  Serial.println("</graphml>");
-  
-  Serial.println("--- END GRAPHML ---");
 }
 
 void ESPNowMesh::onMeshData(void (*callback)(const uint8_t*, const uint8_t*, uint16_t)) {
