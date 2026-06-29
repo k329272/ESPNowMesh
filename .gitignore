@@ -33,3 +33,6 @@
 
 # Configuration files
 .vscode/*
+.github/*
+
+!.github/workflows/*
