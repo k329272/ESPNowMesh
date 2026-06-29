@@ -1,6 +1,6 @@
 # ESPNowMesh
 
-A  ESP32 library that creates self-organizing mesh networks using ESP-NOW for topology discovery and dynamic WiFi activation for optimal communication pathways.
+An ESP32 library that creates self-organizing mesh networks using ESP-NOW for topology discovery and dynamic WiFi activation for optimal communication pathways.
 
 ## Features
 

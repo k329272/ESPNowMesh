@@ -1,0 +1,34 @@
+# Site Settings
+title: "ESPNowMesh reference"
+description: "ESPNowMesh is a ESP32 library that creates self-organizing mesh networks using ESP-NOW for topology discovery and dynamic WiFi activation for optimal communication pathways"
+url: "https://k329272.github.io" # Your production URL
+baseurl: "/ESPNowMesh"           # Subpath of your site (e.g., /project-name)
+
+# Theme Configuration
+remote_theme: "just-the-docs/just-the-docs"
+# Color Scheme (Options: light, dark)
+color_scheme: "dark"
+
+# Search Configuration
+search_enabled: true
+search:
+  heading_level: 3
+  previews: 3
+  preview_words_before: 5
+  preview_words_after: 10
+  tokenizer_separator: /[\s/]+/
+  button: false
+
+# Navigation and UI Controls
+back_to_top: true
+back_to_top_text: "Back to top"
+enable_copy_code_button: true
+
+# Auxiliary Links (Top right navigation block)
+aux_links:
+  "GitHub Repository": "https://github.com"
+
+# External Links (Appears inside the side navigation panel)
+nav_external_links:
+  - title: "Main Project Site"
+    url: "https://example.com"
