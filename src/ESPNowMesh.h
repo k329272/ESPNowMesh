@@ -95,6 +95,7 @@ class ESPNowMesh {
     uint8_t getDeviceCount();
     int16_t getAverageSignalStrength();
     void printNetworkTopology();
+    void printNetworkGraphML();
 
   private:
     // Discovery management

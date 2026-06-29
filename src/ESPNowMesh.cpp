@@ -449,6 +449,51 @@ void ESPNowMesh::printNetworkTopology() {
   Serial.println();
 }
 
+void ESPNowMesh::printNetworkGraphML() {
+  Serial.println("--- BEGIN GRAPHML ---");
+  
+  // Print standard GraphML header and schema definitions
+  Serial.println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+  Serial.println("<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\"");
+  Serial.println("         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"");
+  Serial.println("         xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd\">");
+  
+  // Define attributes for node labels and edge weights (RSSI)
+  Serial.println("  <key id=\"d0\" for=\"node\" attr.name=\"label\" attr.type=\"string\"/>");
+  Serial.println("  <key id=\"d1\" for=\"edge\" attr.name=\"rssi\" attr.type=\"int\"/>");
+  
+  Serial.println("  <graph id=\"G\" edgedefault=\"directed\">");
+  
+  // 1. Print our local device node
+  char myMacStr[18];
+  macToString(myMAC, myMacStr);
+  Serial.printf("    <node id=\"%s\">\n", myMacStr);
+  Serial.printf("      <data key=\"d0\">Self (%s)</data>\n", myMacStr);
+  Serial.println("    </node>");
+  
+  // 2. Print neighbor nodes and edges
+  int edgeId = 0;
+  for (auto const& [macStr, device] : deviceMap) {
+    if (!device.isActive) continue;
+    
+    // Print peer node
+    Serial.printf("    <node id=\"%s\">\n", macStr.c_str());
+    Serial.printf("      <data key=\"d0\">%s</data>\n", macStr.c_str());
+    Serial.println("    </node>");
+    
+    // Print directed edge from self to peer with RSSI value
+    Serial.printf("    <edge id=\"e%d\" source=\"%s\" target=\"%s\">\n", edgeId++, myMacStr, macStr.c_str());
+    Serial.printf("      <data key=\"d1\">%d</data>\n", device.rssi);
+    Serial.println("    </edge>");
+  }
+  
+  // Close structural elements
+  Serial.println("  </graph>");
+  Serial.println("</graphml>");
+  
+  Serial.println("--- END GRAPHML ---");
+}
+
 void ESPNowMesh::onMeshData(void (*callback)(const uint8_t*, const uint8_t*, uint16_t)) {
   onMeshDataCallback = callback;
 }

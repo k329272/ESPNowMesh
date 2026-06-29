@@ -118,6 +118,12 @@ void reportNetworkStats() {
     Serial.println("No devices detected in mesh.");
   }
 
+  Serial.println("\nNetwork topology\n");
+  mesh.printNetworkTopology();
+
+  Serial.println("\nNetwork GraphML (copy and paste into a .GRAPHML)\n");
+  mesh.printNetworkGraphML();
+
   Serial.println("==========================================\n");
 }
 
