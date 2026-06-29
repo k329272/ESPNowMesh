@@ -1,0 +1,13 @@
+# Library keywords
+   ESPNowMesh	KEYWORD1
+   MeshDevice	KEYWORD1
+   MeshRoute	KEYWORD1
+   
+   begin	KEYWORD2
+   startDiscovery	KEYWORD2
+   stopDiscovery	KEYWORD2
+   findOptimalPath	KEYWORD2
+   enableWiFiForPath	KEYWORD2
+   sendData	KEYWORD2
+   getDevices	KEYWORD2
+   getDeviceCount	KEYWORD2
