@@ -46,6 +46,6 @@ void setup() {
     });
 }
   
-void update() {
-    return;
+void loop() {
+    delay(100);
 }
