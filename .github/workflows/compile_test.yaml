@@ -1,0 +1,42 @@
+name: Compile Examples (Arduino Library)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    # Use a matrix to compile all three examples in parallel
+    strategy:
+      matrix:
+        example: 
+          - 'examples/mesh/mesh.ino'
+          - 'examples/pathfind/pathfind.ino'
+          - 'examples/setup/setup.ino'
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install and Configure ESP32 Core
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config set board_manager.additional_urls "https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json"
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+
+      - name: Install ESPNowMesh into Arduino Library Folder
+        run: |
+          mkdir -p ~/Arduino/libraries
+          ln -s "$GITHUB_WORKSPACE" ~/Arduino/libraries/ESPNowMesh
+
+      - name: Compile Example Sketch
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32 "${{ matrix.example }}"
