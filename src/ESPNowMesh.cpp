@@ -248,38 +248,42 @@ MeshRoute ESPNowMesh::calculateShortestPath(const uint8_t* destination) {
     std::string current;
     int16_t minDist = INT16_MAX;
     
-    for (auto& dist : distances) {
-      if (!visited[dist.first] && dist.second < minDist) {
-        minDist = dist.second;
-        current = dist.first;
-      }
-    }
-    
-    if (minDist == INT16_MAX) break;
-    
-    visited[current] = true;
-    
-    // Update neighbors
     for (auto& neighbor : deviceMap) {
       if (!visited[neighbor.first] && neighbor.second.isActive) {
         int16_t alt = distances[current] - neighbor.second.rssi;
         if (alt < distances[neighbor.first]) {
           distances[neighbor.first] = alt;
-          previous[neighbor.first] = (uint8_t*)myMAC;
+          previous[neighbor.first] = deviceMap[current].macAddress; 
         }
       }
     }
   }
-  
+
   // Reconstruct path to destination
   char destStr[18];
   macToString(destination, destStr);
-  
+
   if (distances[destStr] != INT16_MAX) {
     route.signalStrength = distances[destStr];
+    
+    std::vector<uint8_t*> tempPath;
+    std::string currStr = destStr;
+    
+    while (currStr != myMacStr && previous.find(currStr) != previous.end()) {
+      tempPath.push_back(previous[currStr]);
+      char prevStr[18];
+      macToString(previous[currStr], prevStr);
+      currStr = prevStr;
+    }
+    
+    // Reverse the path so it goes from source to destination
+    route.path.push_back((uint8_t*)myMAC);
+    for (auto it = tempPath.rbegin(); it != tempPath.rend(); ++it) {
+      route.path.push_back(*it);
+    }
     route.path.push_back((uint8_t*)destination);
+    route.hopCount = route.path.size() - 1;
   }
-  
   return route;
 }
 
