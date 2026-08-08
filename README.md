@@ -17,36 +17,18 @@ An ESP32 library that creates self-organizing mesh networks using ESP-NOW for to
 
 The library consists of three main components:
 
-``` text
-┌─────────────────────────────────────┐
-│        Application Layer            │
-│  (Your sketch / business logic)     │
-└─────────────────────────────────────┘
-                  │
-┌─────────────────────────────────────┐
-│     ESP-NOW Mesh Manager            │
-│  ├─ Device Discovery                │
-│  ├─ Topology Mapping                │
-│  └─ Message Routing                 │
-└─────────────────────────────────────┘
-                  │
-┌─────────────────────────────────────┐
-│     Pathfinding Engine              │
-│  ├─ Dijkstra's Algorithm            │
-│  ├─ Path Quality Calculation        │
-│  └─ Alternative Path Discovery      │
-└─────────────────────────────────────┘
-                  │
-┌─────────────────────────────────────┐
-│     WiFi Management                 │
-│  ├─ Selective WiFi Activation       │
-│  ├─ Automatic Timeout               │
-│  └─ Power Management                │
-└─────────────────────────────────────┘
-                  │
-┌─────────────────────────────────────┐
-│  ESP-NOW + WiFi (Hardware Interface)│
-└─────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A["<b>Application Layer</b><br/><i>(Your sketch / business logic)</i>"]
+    B["<b>ESP-NOW Mesh Manager</b><br/>• Device Discovery<br/>• Topology Mapping<br/>• Message Routing"]
+    C["<b>Pathfinding Engine</b><br/>• Dijkstra's Algorithm<br/>• Path Quality Calculation<br/>• Alternative Path Discovery"]
+    D["<b>WiFi Management</b><br/>• Selective WiFi Activation<br/>• Automatic Timeout<br/>• Power Management"]
+    E["<b>ESP-NOW + WiFi</b><br/>(Hardware Interface)"]
+
+    A --> B
+    B --> C
+    C --> D
+    D --> E
 ```
 
 ## Installation
