@@ -16,7 +16,21 @@ enum MeshMessageType {
   MSG_PATH_QUERY = 3,
   MSG_PATH_RESPONSE = 4,
   MSG_DATA = 5,
-  MSG_ACK = 6
+  MSG_ACK = 6,
+  MSG_CONFIG_ADVERTISEMENT = 7,
+  MSG_CONFIG_REQUEST = 8,
+  MSG_CONFIG_SYNC = 9
+};
+
+// Mesh-wide runtime configuration shared between peers
+struct MeshConfig {
+  uint32_t configVersion;
+  uint8_t maxDevices;
+  uint32_t discoveryInterval;
+  int16_t rssiThreshold;
+  uint8_t maxHops;
+  uint32_t wifiEnableDuration;
+  uint8_t configFlags;
 };
 
 // Structure for device information
@@ -53,18 +67,23 @@ class ESPNowMesh {
   public:
     ESPNowMesh();
     ~ESPNowMesh();
-  // Update the 'begin' and 'enableWiFiForPath' signatures in the public section:
-  void begin(const char* deviceName,
-            const uint8_t meshMaxDevices = 20,
-            const uint32_t meshDiscoveryInterval = 5000,  // Changed to uint32_t
-            const int16_t meshRSSIThreshold = -85,       // Changed to int16_t
-            const uint8_t meshMaxHops = 10,
-            const uint32_t WiFiEnableDuration = 10000);  // Changed to uint32_t
+    void begin(const char* deviceName,
+               uint8_t meshMaxDevices = 20,
+               uint32_t meshDiscoveryInterval = 5000,
+               int16_t meshRSSIThreshold = -85,
+               uint8_t meshMaxHops = 10,
+               uint32_t wifiEnableDuration = 10000,
+               bool enableConfigSync = true);
 
-  void enableWiFiForPath(const MeshRoute& route, uint32_t durationMs = 10000); // Replaced WIFI_ENABLE_DURATION macro with default 10000
+    void enableWiFiForPath(const MeshRoute& route, uint32_t durationMs = 10000);
     // Start periodic discovery
     void startDiscovery();
     void stopDiscovery();
+
+    // Mesh config synchronization
+    MeshConfig getMeshConfig() const;
+    void setMeshConfig(const MeshConfig& config, bool broadcast = true);
+    void requestMeshConfigSync();
 
     // Get network topology
     std::vector<MeshDevice> getDevices();
@@ -74,8 +93,6 @@ class ESPNowMesh {
     MeshRoute findOptimalPath(const uint8_t* destinationMAC);
     std::vector<MeshRoute> findAlternativePaths(const uint8_t* destinationMAC, uint8_t numPaths = 3);
 
-    // WiFi management
-    void enableWiFiForPath(const MeshRoute& route);
     void disableWiFiForDevice();
 
     // Send data through mesh
@@ -101,6 +118,15 @@ class ESPNowMesh {
     void broadcastDiscoveryProbe();
     void handleDiscoveryProbe(const uint8_t* senderMAC, const MeshMessage* msg);
     void handleDiscoveryResponse(const uint8_t* senderMAC, const MeshMessage* msg);
+    void handleConfigAdvertisement(const uint8_t* senderMAC, const MeshMessage* msg);
+    void handleConfigRequest(const uint8_t* senderMAC, const MeshMessage* msg);
+    void handleConfigSync(const uint8_t* senderMAC, const MeshMessage* msg);
+    void broadcastMeshConfig(bool requestOnly = false);
+    void refreshDiscoveryTimer();
+    void applyMeshConfig(const MeshConfig& config, const uint8_t* sourceMac, bool forceApply);
+    bool unpackMeshConfig(const MeshMessage* msg, MeshConfig& config);
+    void packMeshConfig(MeshMessage& msg, MeshMessageType messageType);
+    uint32_t meshConfigSignature(const MeshConfig& config) const;
 
     // Pathfinding (Dijkstra's algorithm)
     MeshRoute calculateShortestPath(const uint8_t* destination);
@@ -150,5 +176,11 @@ class ESPNowMesh {
     int16_t _rssiThreshold;
     uint8_t _maxHops;
     uint32_t _wifiEnableDuration;
+    MeshConfig _meshConfig;
+    bool _configSyncEnabled;
+    bool _configSynced;
+    uint32_t _configSignature;
+    uint8_t _configSourceMac[6];
+    bool _hasConfigSource;
 };
 #endif

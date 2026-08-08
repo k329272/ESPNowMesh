@@ -6,6 +6,7 @@ An ESP32 library that creates self-organizing mesh networks using ESP-NOW for to
 
 ### Core Functionality
 - **Periodic ESP-NOW Mesh Discovery**: Automatic device discovery using broadcast ESP-NOW messages
+- **Mesh Config Synchronization**: Discovery packets carry runtime mesh settings so new nodes can converge automatically
 - **Dynamic Pathfinding**: Dijkstra's algorithm for calculating optimal communication routes
 - **Selective WiFi Activation**: Only enables WiFi on devices in the optimal path to conserve power
 - **Signal Strength Monitoring**: RSSI-based quality assessment for intelligent routing decisions
@@ -114,16 +115,42 @@ if (!route.path.empty()) {
 
 ### Initialization
 
-#### `void begin(const char* deviceName)`
+#### `void begin(const char* deviceName, uint8_t meshMaxDevices = 20, uint32_t meshDiscoveryInterval = 5000, int16_t meshRSSIThreshold = -85, uint8_t meshMaxHops = 10, uint32_t wifiEnableDuration = 10000, bool enableConfigSync = true)`
 Initializes the ESP-NOW mesh network. Must be called once during setup.
 
 **Parameters:**
 - `deviceName`: Friendly name for this device (for debugging)
 
+**Runtime config parameters:**
+- `meshMaxDevices`: Maximum number of peers to track
+- `meshDiscoveryInterval`: Discovery broadcast interval in milliseconds
+- `meshRSSIThreshold`: Minimum RSSI for a peer to be accepted
+- `meshMaxHops`: Maximum hop count used by the router
+- `wifiEnableDuration`: How long WiFi stays enabled after a path is activated
+- `enableConfigSync`: When `true`, the node requests and advertises mesh config during discovery
+
 **Example:**
 ```cpp
 mesh.begin("SensorNode-1");
 ```
+
+---
+
+### Mesh Config Sync
+
+#### `MeshConfig getMeshConfig() const`
+Returns the current runtime mesh configuration.
+
+#### `void setMeshConfig(const MeshConfig& config, bool broadcast = true)`
+Updates local mesh settings and optionally advertises them to peers.
+
+#### `void requestMeshConfigSync()`
+Broadcasts a config request so nearby nodes can reply with their active mesh settings.
+
+**Behavior:**
+- Discovery packets now carry config metadata automatically
+- New nodes can adopt the first valid config they hear
+- Calling `setMeshConfig()` lets one node act as the source of truth for the rest of the mesh
 
 ---
 
@@ -265,7 +292,7 @@ Serial.printf("Found %d alternative routes\n", altRoutes.size());
 
 ### WiFi Management
 
-#### `void enableWiFiForPath(const MeshRoute& route, uint32_t durationMs = WIFI_ENABLE_DURATION)`
+#### `void enableWiFiForPath(const MeshRoute& route, uint32_t durationMs = 10000)`
 Activates WiFi on all devices in the optimal path for a specified duration.
 
 **Parameters:**
@@ -396,15 +423,21 @@ struct MeshRoute {
 
 ## Configuration
 
-Edit these defines in `ESPNowMesh.h` to customize behavior:
+Customize mesh behavior at runtime through `begin()` or `setMeshConfig()`:
 
 ```cpp
-#define MESH_MAX_DEVICES 20            // Maximum devices to track
-#define MESH_DISCOVERY_INTERVAL 5000   // Discovery broadcast interval
-#define MESH_RSSI_THRESHOLD -85        // Minimum signal to consider
-#define MESH_MAX_HOPS 10               // Maximum path length
-#define WIFI_ENABLE_DURATION 10000     // Default WiFi active time (ms)
+mesh.begin(
+  "MyDevice",
+  24,        // max devices
+  3000,      // discovery interval
+  -80,       // RSSI threshold
+  8,         // max hops
+  8000,      // WiFi enable duration
+  true       // enable config sync
+);
 ```
+
+If you need to update a live mesh, call `setMeshConfig()` on one node and let the config broadcast propagate to the others.
 
 ---
 
@@ -480,7 +513,6 @@ mesh.sendData(targetMAC, data, length);
 
 ### Planned Features
 - Multi-hop relaying for distant devices
-- Automatic WiFi channel coordination
 - Network-wide time synchronization
 - Encrypted mesh protocol
 - Web dashboard for network visualization

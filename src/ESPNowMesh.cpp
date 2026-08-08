@@ -12,8 +12,14 @@ ESPNowMesh::ESPNowMesh()
     wifiDisableTimer(nullptr),
     onMeshDataCallback(nullptr),
     onDeviceDiscoveredCallback(nullptr),
-    onPathFoundCallback(nullptr) {
+    onPathFoundCallback(nullptr),
+    _configSyncEnabled(true),
+    _configSynced(false),
+    _configSignature(0),
+    _hasConfigSource(false) {
   instance = this;
+  memset(_configSourceMac, 0, sizeof(_configSourceMac));
+  memset(&_meshConfig, 0, sizeof(_meshConfig));
 }
 
 ESPNowMesh::~ESPNowMesh() {
@@ -22,11 +28,12 @@ ESPNowMesh::~ESPNowMesh() {
 }
 
 void ESPNowMesh::begin(const char* deviceName, 
-                      const uint8_t meshMaxDevices,
-                      const uint32_t meshDiscoveryInterval,
-                      const int16_t meshRSSIThreshold,
-                      const uint8_t meshMaxHops,
-                      const uint32_t WiFiEnableDuration) {
+                      uint8_t meshMaxDevices,
+                      uint32_t meshDiscoveryInterval,
+                      int16_t meshRSSIThreshold,
+                      uint8_t meshMaxHops,
+                      uint32_t wifiEnableDuration,
+                      bool enableConfigSync) {
   
   // Store the configuration variables
   _deviceName = String(deviceName);
@@ -34,7 +41,24 @@ void ESPNowMesh::begin(const char* deviceName,
   _discoveryInterval = meshDiscoveryInterval;
   _rssiThreshold = meshRSSIThreshold;
   _maxHops = meshMaxHops;
-  _wifiEnableDuration = WiFiEnableDuration;
+  _wifiEnableDuration = wifiEnableDuration;
+  _configSyncEnabled = enableConfigSync;
+  _configSynced = false;
+
+  _meshConfig.maxDevices = meshMaxDevices;
+  _meshConfig.discoveryInterval = meshDiscoveryInterval;
+  _meshConfig.rssiThreshold = meshRSSIThreshold;
+  _meshConfig.maxHops = meshMaxHops;
+  _meshConfig.wifiEnableDuration = wifiEnableDuration;
+  _meshConfig.configFlags = enableConfigSync ? 0x01 : 0x00;
+  _meshConfig.configVersion = (_meshConfig.maxDevices == 20 &&
+                               _meshConfig.discoveryInterval == 5000 &&
+                               _meshConfig.rssiThreshold == -85 &&
+                               _meshConfig.maxHops == 10 &&
+                               _meshConfig.wifiEnableDuration == 10000)
+                              ? 1
+                              : 2;
+  _configSignature = meshConfigSignature(_meshConfig);
 
   // Initialize WiFi in STA mode
   WiFi.mode(WIFI_STA);
@@ -63,6 +87,10 @@ void ESPNowMesh::begin(const char* deviceName,
   char macStr[18];
   macToString(myMAC, macStr);
   Serial.println(macStr);
+
+  if (_configSyncEnabled) {
+    requestMeshConfigSync();
+  }
 }
 
 void ESPNowMesh::startDiscovery() {
@@ -112,8 +140,8 @@ void ESPNowMesh::broadcastDiscoveryProbe() {
   copyMac(msg.sourceMAC, myMAC);
   memset(msg.destMAC, 0xFF, 6);  // Broadcast
   msg.hopCount = 0;
-  msg.payloadSize = 0;
   msg.messageID = millis();
+  packMeshConfig(msg, MSG_DISCOVERY_PROBE);
   
   // Broadcast to all peers
   uint8_t broadcastMAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
@@ -146,6 +174,15 @@ void ESPNowMesh::espNowOnReceive(const uint8_t* mac, const uint8_t* incomingData
     case MSG_DISCOVERY_RESPONSE:
       instance->handleDiscoveryResponse(mac, msg);
       break;
+    case MSG_CONFIG_ADVERTISEMENT:
+      instance->handleConfigAdvertisement(mac, msg);
+      break;
+    case MSG_CONFIG_REQUEST:
+      instance->handleConfigRequest(mac, msg);
+      break;
+    case MSG_CONFIG_SYNC:
+      instance->handleConfigSync(mac, msg);
+      break;
     case MSG_DATA:
       if (instance->onMeshDataCallback) {
         instance->onMeshDataCallback(msg->sourceMAC, msg->payload, msg->payloadSize);
@@ -167,6 +204,10 @@ void ESPNowMesh::espNowOnSent(const uint8_t* mac, esp_now_send_status_t status) 
 void ESPNowMesh::handleDiscoveryProbe(const uint8_t* senderMAC, const MeshMessage* msg) {
   // Don't respond to our own probes
   if (compareMac(senderMAC, myMAC)) return;
+
+  if (_configSyncEnabled) {
+    handleConfigAdvertisement(senderMAC, msg);
+  }
   
   // Enforce the maximum hop limit
   if (msg->hopCount >= _maxHops) {
@@ -179,8 +220,8 @@ void ESPNowMesh::handleDiscoveryProbe(const uint8_t* senderMAC, const MeshMessag
   copyMac(response.sourceMAC, myMAC);
   copyMac(response.destMAC, senderMAC);
   response.hopCount = msg->hopCount + 1;
-  response.payloadSize = 0;
   response.messageID = msg->messageID;
+  packMeshConfig(response, MSG_DISCOVERY_RESPONSE);
   
   // Add peer if not exists
   esp_now_peer_info_t peerInfo = {};
@@ -193,6 +234,10 @@ void ESPNowMesh::handleDiscoveryProbe(const uint8_t* senderMAC, const MeshMessag
 }
 
 void ESPNowMesh::handleDiscoveryResponse(const uint8_t* senderMAC, const MeshMessage* msg) {
+  if (_configSyncEnabled) {
+    handleConfigAdvertisement(senderMAC, msg);
+  }
+
   int16_t rssi = -60;  // Placeholder
   
   // Enforce RSSI Threshold
@@ -207,6 +252,201 @@ void ESPNowMesh::handleDiscoveryResponse(const uint8_t* senderMAC, const MeshMes
   char macStr[18];
   macToString(senderMAC, macStr);
   Serial.printf("[MESH] Discovered device: %s (RSSI: %d)\n", macStr, rssi);
+}
+
+MeshConfig ESPNowMesh::getMeshConfig() const {
+  return _meshConfig;
+}
+
+void ESPNowMesh::setMeshConfig(const MeshConfig& config, bool broadcast) {
+  _meshConfig = config;
+  _meshConfig.configFlags = (_configSyncEnabled ? (_meshConfig.configFlags | 0x01) : (_meshConfig.configFlags & ~0x01));
+  _configSignature = meshConfigSignature(_meshConfig);
+  _configSynced = true;
+  _hasConfigSource = true;
+  copyMac(_configSourceMac, myMAC);
+
+  _maxDevices = _meshConfig.maxDevices;
+  _discoveryInterval = _meshConfig.discoveryInterval;
+  _rssiThreshold = _meshConfig.rssiThreshold;
+  _maxHops = _meshConfig.maxHops;
+  _wifiEnableDuration = _meshConfig.wifiEnableDuration;
+
+  if (broadcast && _configSyncEnabled) {
+    broadcastMeshConfig(false);
+  }
+
+  refreshDiscoveryTimer();
+}
+
+void ESPNowMesh::requestMeshConfigSync() {
+  broadcastMeshConfig(true);
+}
+
+void ESPNowMesh::broadcastMeshConfig(bool requestOnly) {
+  if (!_configSyncEnabled) return;
+
+  MeshMessage msg;
+  memset(&msg, 0, sizeof(msg));
+  copyMac(msg.sourceMAC, myMAC);
+  memset(msg.destMAC, 0xFF, 6);
+  msg.hopCount = 0;
+  msg.messageID = millis();
+
+  if (requestOnly) {
+    msg.messageType = MSG_CONFIG_REQUEST;
+    msg.payloadSize = 0;
+  } else {
+    packMeshConfig(msg, MSG_CONFIG_ADVERTISEMENT);
+  }
+
+  uint8_t broadcastMAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, broadcastMAC, 6);
+  peerInfo.channel = 1;
+  peerInfo.encrypt = false;
+
+  esp_now_add_peer(&peerInfo);
+  esp_now_send(broadcastMAC, (uint8_t*)&msg, sizeof(MeshMessage));
+}
+
+void ESPNowMesh::handleConfigAdvertisement(const uint8_t* senderMAC, const MeshMessage* msg) {
+  if (!_configSyncEnabled) return;
+  if (!msg || msg->payloadSize < sizeof(MeshConfig)) return;
+
+  MeshConfig incoming;
+  if (!unpackMeshConfig(msg, incoming)) return;
+
+  applyMeshConfig(incoming, senderMAC, false);
+}
+
+void ESPNowMesh::handleConfigRequest(const uint8_t* senderMAC, const MeshMessage* msg) {
+  (void)msg;
+  if (!_configSyncEnabled) return;
+  if (compareMac(senderMAC, myMAC)) return;
+
+  MeshMessage response;
+  memset(&response, 0, sizeof(response));
+  response.messageType = MSG_CONFIG_SYNC;
+  copyMac(response.sourceMAC, myMAC);
+  copyMac(response.destMAC, senderMAC);
+  response.hopCount = 0;
+  response.messageID = millis();
+  packMeshConfig(response, MSG_CONFIG_SYNC);
+
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, senderMAC, 6);
+  peerInfo.channel = 1;
+  peerInfo.encrypt = false;
+
+  esp_now_add_peer(&peerInfo);
+  esp_now_send(senderMAC, (uint8_t*)&response, sizeof(MeshMessage));
+}
+
+void ESPNowMesh::handleConfigSync(const uint8_t* senderMAC, const MeshMessage* msg) {
+  handleConfigAdvertisement(senderMAC, msg);
+}
+
+void ESPNowMesh::refreshDiscoveryTimer() {
+  if (!discoveryRunning || discoveryTimer == nullptr) return;
+
+  xTimerStop(discoveryTimer, 0);
+  xTimerDelete(discoveryTimer, 0);
+  discoveryTimer = xTimerCreate(
+    "MeshDiscovery",
+    pdMS_TO_TICKS(_discoveryInterval),
+    pdTRUE,
+    (void*)this,
+    [](TimerHandle_t xTimer) {
+      ESPNowMesh* mesh = (ESPNowMesh*)pvTimerGetTimerID(xTimer);
+      mesh->performDiscovery();
+    }
+  );
+  xTimerStart(discoveryTimer, 0);
+}
+
+void ESPNowMesh::applyMeshConfig(const MeshConfig& config, const uint8_t* sourceMac, bool forceApply) {
+  if (!_configSyncEnabled) return;
+
+  uint32_t incomingSignature = meshConfigSignature(config);
+  bool incomingIsNewer = config.configVersion > _meshConfig.configVersion;
+  bool sameConfig = incomingSignature == _configSignature;
+
+  if (sameConfig && !forceApply) {
+    _configSynced = true;
+    if (sourceMac) {
+      copyMac(_configSourceMac, sourceMac);
+      _hasConfigSource = true;
+    }
+    return;
+  }
+
+  bool shouldApply = forceApply;
+
+  if (!shouldApply) {
+    if (!_configSynced) {
+      shouldApply = true;
+    } else if (incomingIsNewer) {
+      shouldApply = true;
+    } else if (config.configVersion == _meshConfig.configVersion && sourceMac) {
+      if (!_hasConfigSource || memcmp(sourceMac, _configSourceMac, 6) < 0) {
+        shouldApply = true;
+      }
+    }
+  }
+
+  if (!shouldApply) return;
+
+  _meshConfig = config;
+  _meshConfig.configFlags = (_configSyncEnabled ? (_meshConfig.configFlags | 0x01) : (_meshConfig.configFlags & ~0x01));
+  _configSignature = meshConfigSignature(_meshConfig);
+  _configSynced = true;
+  if (sourceMac) {
+    copyMac(_configSourceMac, sourceMac);
+    _hasConfigSource = true;
+  }
+
+  _maxDevices = _meshConfig.maxDevices;
+  _discoveryInterval = _meshConfig.discoveryInterval;
+  _rssiThreshold = _meshConfig.rssiThreshold;
+  _maxHops = _meshConfig.maxHops;
+  _wifiEnableDuration = _meshConfig.wifiEnableDuration;
+
+  Serial.printf("[MESH] Synced config v%lu from %02X:%02X:%02X:%02X:%02X:%02X\n",
+                (unsigned long)_meshConfig.configVersion,
+                sourceMac ? sourceMac[0] : 0,
+                sourceMac ? sourceMac[1] : 0,
+                sourceMac ? sourceMac[2] : 0,
+                sourceMac ? sourceMac[3] : 0,
+                sourceMac ? sourceMac[4] : 0,
+                sourceMac ? sourceMac[5] : 0);
+
+  refreshDiscoveryTimer();
+}
+
+bool ESPNowMesh::unpackMeshConfig(const MeshMessage* msg, MeshConfig& config) {
+  if (!msg || msg->payloadSize < sizeof(MeshConfig)) return false;
+  memcpy(&config, msg->payload, sizeof(MeshConfig));
+  return true;
+}
+
+void ESPNowMesh::packMeshConfig(MeshMessage& msg, MeshMessageType messageType) {
+  msg.messageType = messageType;
+  memset(msg.payload, 0, sizeof(msg.payload));
+  memcpy(msg.payload, &_meshConfig, sizeof(MeshConfig));
+  msg.payloadSize = sizeof(MeshConfig);
+}
+
+uint32_t ESPNowMesh::meshConfigSignature(const MeshConfig& config) const {
+  MeshConfig normalized = config;
+  normalized.configFlags &= ~0x01;
+  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&normalized);
+  uint32_t hash = 2166136261UL;
+  for (size_t i = 0; i < sizeof(MeshConfig); i++) {
+    hash ^= bytes[i];
+    hash *= 16777619UL;
+  }
+  return hash;
 }
 
 MeshRoute ESPNowMesh::findOptimalPath(const uint8_t* destinationMAC) {
@@ -321,7 +561,7 @@ int16_t ESPNowMesh::calculatePathQuality(const MeshRoute& route) {
   return quality;
 }
 
-void ESPNowMesh::enableWiFiForPath(const MeshRoute& route) {
+void ESPNowMesh::enableWiFiForPath(const MeshRoute& route, uint32_t durationMs) {
   enableWiFi();
   
   // Create timer to disable WiFi after duration
@@ -332,7 +572,7 @@ void ESPNowMesh::enableWiFiForPath(const MeshRoute& route) {
   
   wifiDisableTimer = xTimerCreate(
     "WiFiDisable",
-    pdMS_TO_TICKS(_wifiEnableDuration),  // Replaced durationMs with _wifiEnableDuration
+    pdMS_TO_TICKS(durationMs),
     pdFALSE,
     (void*)this,
     [](TimerHandle_t xTimer) {
@@ -343,7 +583,8 @@ void ESPNowMesh::enableWiFiForPath(const MeshRoute& route) {
   
   xTimerStart(wifiDisableTimer, 0);
   
-  Serial.printf("[MESH] WiFi enabled for %d ms\n", _wifiEnableDuration);
+  _wifiEnableDuration = durationMs;
+  Serial.printf("[MESH] WiFi enabled for %d ms\n", durationMs);
 }
 
 void ESPNowMesh::printNetworkGraphML() {
