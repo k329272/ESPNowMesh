@@ -14,9 +14,12 @@ jobs:
     strategy:
       matrix:
         example: 
-          - 'examples/mesh/mesh.ino'
-          - 'examples/pathfind/pathfind.ino'
-          - 'examples/setup/setup.ino'
+          - 'examples/CustomConnection/CustomConnection.ino'
+          - 'examples/DebugDash/DebugDash.ino'
+          - 'examples/InboxMessaging/InboxMessaging.ino'
+          - 'examples/LowPowerNode/LowPowerNode.ino'
+          - 'examples/MultiDevice/MultiDevice.ino'
+          - 'examples/TimeSyncEventLog/TimeSyncEventLog.ino'
 
     steps:
       - name: Checkout Repository
